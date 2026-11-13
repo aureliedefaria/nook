@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nook</title>
+<meta name="theme-color" content="#F4EDE2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Nook">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#F4EDE2; --card:#FFFBF4; --ink:#3B2F27; --soft:#8A7663; --line:#E2D5C2;
+  --accent:#B5654A; --accent-ink:#FFFBF4;
+  --serif: "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+  display:flex;flex-direction:column;align-items:center;
+  padding:calc(env(safe-area-inset-top) + 28px) 20px calc(env(safe-area-inset-bottom) + 28px);
+  -webkit-tap-highlight-color:transparent}
+header{width:100%;max-width:440px;display:flex;justify-content:space-between;align-items:baseline}
+h1{font-family:var(--serif);font-weight:600;font-size:26px;margin:0;letter-spacing:.5px}
+.date{color:var(--soft);font-size:14px}
+main{flex:1;width:100%;max-width:440px;display:flex;flex-direction:column;justify-content:center;gap:28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;
+  padding:34px 26px 30px;box-shadow:0 10px 30px -18px rgba(80,50,30,.35);min-height:260px;
+  display:flex;flex-direction:column;justify-content:center}
+.tag{font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--accent);margin-bottom:18px}
+.prompt{font-family:var(--serif);font-size:23px;line-height:1.45;margin:0}
+.msg{font-family:var(--serif);font-size:21px;line-height:1.5;text-align:center;margin:0}
+.sub{color:var(--soft);font-size:15px;text-align:center;margin:14px 0 0;line-height:1.5}
+.back{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;
+  background:repeating-linear-gradient(45deg,#F9F2E7 0 10px,#FFFBF4 10px 20px)}
+.back .n{font-family:var(--serif);font-size:64px;color:var(--accent);line-height:1}
+button{font:inherit;border:0;border-radius:999px;padding:17px 22px;font-size:17px;font-weight:600;
+  width:100%;cursor:pointer;transition:transform .12s ease, opacity .2s}
+button:active{transform:scale(.98)}
+.primary{background:var(--accent);color:var(--accent-ink)}
+.reveal{animation:flip .45s ease both}
+@keyframes flip{from{opacity:0;transform:translateY(10px) rotateX(18deg)}to{opacity:1;transform:none}}
+.count{color:var(--soft);font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<header><h1>Nook</h1><span class="date" id="date"></span></header>
+<main id="app"></main>
+<script>
+const KEY='nook-state-v1';
+const $app=document.getElementById('app');
+const today=()=>new Date().toLocaleDateString('sv-SE');
+document.getElementById('date').textContent=new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||{}}catch(e){return {}}}
+function save(s){try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function decode(b64){const bin=atob(b64);const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0));return JSON.parse(new TextDecoder().decode(bytes))}
+
+let S=load(), P={};
+
+async function init(){
+  let data;
+  try{const r=await fetch('prompts.json',{cache:'no-cache'});data=await r.json()}
+  catch(e){$app.innerHTML='<div class="card"><p class="msg">Impossible de charger les cartes.</p><p class="sub">Vérifie ta connexion puis rouvre Nook.</p></div>';return}
+  decode(data.data).forEach(p=>{p.t=p.t.replace(/ ([?!:;»])/g,'\u00a0$1').replace(/« /g,'«\u00a0');P[p.id]=p});
+  S.done=S.done||{}; S.deck=S.deck||[];
+  if(!S.seeded){(data.used||[]).forEach(id=>S.done[id]=true);S.seeded=true}
+  // retire du paquet ce qui n'existe plus ou est fait
+  S.deck=S.deck.filter(id=>P[id]&&!S.done[id]&&(!S.current||S.current.id!==id));
+  // ajoute les nouvelles cartes à des places au hasard
+  const known=new Set(S.deck); if(S.current) known.add(S.current.id);
+  const fresh=shuffle(Object.keys(P).filter(id=>!S.done[id]&&!known.has(id)));
+  fresh.forEach(id=>S.deck.splice(Math.floor(Math.random()*(S.deck.length+1)),0,id));
+  // une carte vue un autre jour et pas écrite retourne au fond du paquet
+  if(S.current&&S.current.on!==today()){ if(P[S.current.id]&&!S.done[S.current.id]) S.deck.push(S.current.id); S.current=null }
+  save(S); render();
+}
+
+function left(){return S.deck.length+(S.current?1:0)}
+
+function render(){
+  const t=today();
+  if(S.lastDone===t){
+    $app.innerHTML=`<div class="card reveal"><p class="msg">C'est écrit pour aujourd'hui.</p><p class="sub">Ta prochaine carte t'attend demain.</p></div>
+    <p class="count">${left()} cartes dans le paquet</p>`;return}
+  if(S.current&&S.current.on===t&&P[S.current.id]){
+    const p=P[S.current.id];
+    $app.innerHTML=`<div class="card reveal"><div class="tag">${p.d}</div><p class="prompt">${p.t}</p></div>
+    <button class="primary" id="done">C'est écrit</button>`;
+    document.getElementById('done').onclick=()=>{
+      S.done[S.current.id]=true; S.current=null; S.lastDone=t; save(S); render()};
+    return}
+  if(!S.deck.length){
+    $app.innerHTML=`<div class="card"><p class="msg">Tu as écrit toutes les cartes.</p><p class="sub">De nouvelles arriveront bientôt.</p></div>`;return}
+  $app.innerHTML=`<div class="card back"><div class="n">n</div><p class="sub" style="margin:0">Ta carte du jour est prête.</p></div>
+  <button class="primary" id="draw">Tirer ma carte</button>
+  <p class="count">${left()} cartes dans le paquet</p>`;
+  document.getElementById('draw').onclick=()=>{
+    S.current={id:S.deck.shift(),on:t}; save(S); render()};
+}
+
+// si l'app reste ouverte après minuit
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Object.keys(P).length){
+  if(S.current&&S.current.on!==today()){S.deck.push(S.current.id);S.current=null;save(S)} render()}});
+
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+init();
+</script>
+</body>
+</html>
